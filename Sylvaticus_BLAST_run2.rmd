@@ -1,0 +1,457 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+```{r}
+library(here)
+library(tidyverse)
+library("seqRFLP")
+```
+
+
+```{r}
+Sylvaticus_new <- read_tsv(here::here("", "consensus_sylvaticus_final_output.txt"), col_names=F) %>% 
+  rename("Query_seq_id" = X1,
+         "Subject_seq_id" = X2,
+         "Evalue" = X3,
+         "Identical_matches_perc" = X4,
+         "bitscore" = X5,
+         "subject_title" = X6)
+
+head(Sylvaticus_new)
+```
+
+
+```{r}
+# Extract the first 3 words from the subject title
+Sylvaticus_new <- Sylvaticus_new %>% mutate(species = word(subject_title, 1, 3))
+
+tail(Sylvaticus_new)
+```
+
+```{r}
+# need to substitute "Mus musculus" to "Musmusculus" so its one word
+Sylvaticus_new$species <- gsub("Mus musculus", "Musmusculus", Sylvaticus_new$species)
+
+Sylvaticus_new %>% filter(str_detect(species, "Musmusculus"))
+```
+
+```{r}
+# need to extract 2 words
+Sylvaticus_new$species <- Sylvaticus_new$species %>% word(1, 2)
+
+# need to convert mus musculus back to normal 
+Sylvaticus_new$species <- gsub("Musmusculus", "Mus musculus", Sylvaticus_new$species)
+
+Sylvaticus_new %>% select(species) %>% unique() # 22 because mus musculus chromosome and unplaced
+
+```
+
+
+```{r}
+# the Mus musculus need to not have a third word 
+Sylvaticus_new$species <- gsub("Mus musculus chromosome", "Mus musculus", Sylvaticus_new$species)
+Sylvaticus_new$species <- gsub("Mus musculus unplaced", "Mus musculus", Sylvaticus_new$species)
+Sylvaticus_new %>% select(species) %>% unique() %>% nrow()
+# now have the correct amount 21 species
+```
+
+
+```{r}
+# split the dataframe to subdataframes for each consensus_id
+unique_consensus_ID <- split(Sylvaticus_new,f=Sylvaticus_new$Query_seq_id)
+```
+
+```{r}
+# check how the bitscore is arranged
+unique_consensus_ID[[1]] 
+# goes from highest to lowest for each species
+
+# want to make sure when removing duplicated rows of species that you are actually keeping the highest bitscore
+unique_consensus_ID[[1]] %>% group_by(species) %>% arrange(desc(bitscore)) %>% filter(species = "Rattus")
+
+# do this for all the dataframes
+unique_consensus_ID <- lapply(unique_consensus_ID, function(x) {x %>% group_by(species) %>% arrange(desc(bitscore))})
+
+
+# check
+unique_consensus_ID[[1]] %>% filter(species == "Onychomys torridus")
+```
+
+```{r}
+# remove all duplicated species for 1 subdataframe
+unique_consensus_ID[[1]][!duplicated(unique_consensus_ID[[1]]$species),] %>% filter(species == "Onychomys torridus") # kept the highest value 130 
+
+# now do it across all dataframes
+unique_consensus_ID <- lapply(unique_consensus_ID, function(x) { x[!duplicated(x$species),]})  
+
+# check if worked, yes, contains only one species per locus
+unique_consensus_ID[[2]]
+```
+
+
+put back into one big dataframe so can calculate overall results
+```{r}
+# collapse dataframe rows one after the other
+filtered_sylvaticus <- bind_rows(unique_consensus_ID)
+```
+
+```{r}
+# want to calculate how many each consensus has a unique species
+# Dataframe is still grouped by species therefore need to ungroup the whole thing
+filtered_sylvaticus <- filtered_sylvaticus %>% ungroup()
+
+head(filtered_sylvaticus)
+
+# now can calculate the number of times a unique query id is repeated and put in descending order
+loci_sites <- filtered_sylvaticus %>% count(Query_seq_id) %>% arrange(desc(n))
+
+filtered_sylvaticus %>% count(Query_seq_id) %>% arrange(desc(n)) %>% filter(n == 21)
+
+```
+
+do this table the other way round in order to plot
+Thousand loci sites how many species are there
+filtering by number of loci site to see how many species are left
+e.g. 1 species how many loci sites for this 
+2 etc etc up til 21
+
+
+```{r}
+loci_sites
+
+# this counts the number of times each number has been repeated and mutate it into a new row, then arranges it from highest to lowest
+loci_sites <- loci_sites %>% group_by(n) %>% mutate(number_of_loci=seq(n())) %>% arrange(desc(number_of_loci)) 
+loci_sites
+
+# This is to remove all the numbers except for the first
+loci_sites <- loci_sites %>% ungroup()
+loci_sites <- loci_sites[!duplicated(loci_sites$n),] %>% arrange(desc(n)) %>% select(n, number_of_loci)
+loci_sites
+
+# check if values are right, look at number of rows
+filtered_sylvaticus %>% count(Query_seq_id) %>% arrange(desc(n)) %>% filter(n == 21) %>% nrow()
+
+
+# rename the column so can plot 
+loci_sites <- loci_sites %>% rename("number_of_species" = n)
+loci_sites
+```
+
+```{r}
+R21 <- filtered_sylvaticus %>% count(Query_seq_id) %>% arrange(desc(n)) %>% filter(n == 21) %>% select(Query_seq_id)
+R21
+test_21 <- filter(filtered_sylvaticus, Query_seq_id %in% R21$Query_seq_id) %>% select(Query_seq_id, species) 
+test_21 %>% nrow() # 298 (no. of seq_id) * 21 (no.species) = 6258 which is the correct number
+test_21 %>% arrange(Query_seq_id)
+
+
+test_21 %>% count(species) %>% arrange(desc(n)) # all 298 and there are 21 number of rows
+```
+
+
+```{r}
+test_21
+
+filter(Sylvaticus_new, Query_seq_id %in% test_21$Query_seq_id) %>% group_by(Query_seq_id) %>% count(species) # ALSO 6,258!!! WHICH IS THE CORRECT AMOUNT, SOME COUNTS ARE MORE THAN 1 BECAUSE HAVE NOT REMOVED THE DUPLICATED RESULTS. 
+# 298 (no. of seq_id) * 21 (no.species) = 6258 which is the correct number
+
+filter(Sylvaticus_new, Query_seq_id %in% test_21$Query_seq_id) %>% group_by(Query_seq_id) %>% count(Query_seq_id) 
+
+filter(Sylvaticus_new, Query_seq_id %in% test_21$Query_seq_id) %>% arrange(Identical_matches_perc) # all more than 75%
+```
+
+
+# NEED TO EXTRACT ALL THE 298 LOCI SITES FROM THE ORIGINAL INPUT SO CAN PUT THIS INTO BLAST
+
+```{r}
+read_tsv(here::here("", "../consensus_sylvaticus_all.fa"), col_names=F)
+# 85,508 / 4 = 21,377 Loci sites
+
+# make this into a dataframe
+library("Biostrings")
+
+input <- readDNAStringSet("consensus_sylvaticus_all.fa")
+Var1 <- names(input)
+sequence <- paste(input)
+input_df <- data.frame(Var1, sequence) # correct number 21,377 
+input_df
+
+
+input_21 <- filter(input_df, Var1 %in% test_21$Query_seq_id) # yaaayyy 298!!
+
+```
+
+
+# Now lets put this back into a fasta format
+
+```{r}
+# need package seqRFLP
+install.packages("seqRFLP")
+library("seqRFLP")
+
+298*2
+
+# covert dataframe into fasta format
+dataframe2fas(input_21, file = NULL) 
+dataframe2fas(input_21, file = NULL) %>% length()
+# one line for the ID one line for sequence .: 298 * 2 = 596 which is correct number
+```
+
+# Save this as a fasta file on laptop
+```{r}
+dataframe2fas(input_21, file = "Sylvaticus_consensus_21_species.fa")
+```
+
+
+
+
+
+# BLAST DONE FOR THE 298 LOCI WITH 21 SPECIES EACH
+
+ANALYSIS OF OUTPUT
+
+
+
+
+
+```{r}
+Sylvaticus_21_run <- read_tsv(here::here("", "../sylvaticus_21species_output.txt"), col_names=F) %>% 
+  rename("Query_seq_id" = X1,
+         "Subject_seq_id" = X2,
+         "Evalue" = X3,
+         "Identical_matches_perc" = X4,
+         "bitscore" = X5,
+         "subject_title" = X6,
+         "subject_sequence" = X7)
+
+
+
+```
+
+
+```{r}
+# Extract the first 3 words from the subject title
+Sylvaticus_21_run <- Sylvaticus_21_run %>% mutate(species = word(subject_title, 1, 3))
+
+tail(Sylvaticus_new)
+```
+
+```{r}
+# need to substitute "Mus musculus" to "Musmusculus" so its one word
+Sylvaticus_21_run$species <- gsub("Mus musculus", "Musmusculus", Sylvaticus_21_run$species)
+
+Sylvaticus_21_run %>% filter(str_detect(species, "Musmusculus"))
+```
+
+```{r}
+# need to extract 2 words
+Sylvaticus_21_run$species <- Sylvaticus_21_run$species %>% word(1, 2)
+
+# need to convert mus musculus back to normal 
+Sylvaticus_21_run$species <- gsub("Musmusculus", "Mus musculus", Sylvaticus_21_run$species)
+
+Sylvaticus_21_run %>% select(species) %>% unique() # 22 because mus musculus chromosome and unplaced: but this does not have mus musculus unplaced just mus musculus chromosome
+
+```
+
+
+```{r}
+# the Mus musculus need to not have a third word 
+Sylvaticus_21_run$species <- gsub("Mus musculus chromosome", "Mus musculus", Sylvaticus_21_run$species)
+
+Sylvaticus_21_run %>% select(species) %>% unique() %>% nrow()
+# now have the correct amount 21 species
+```
+```{r}
+Sylvaticus_21_run %>% group_by(Query_seq_id) %>% count(species) # yesssss!!!! the same numberrrrrrr 6258
+```
+
+
+
+
+
+# MSA PREPARING 21 FILES
+
+```{r}
+split(Sylvaticus_21_run,f=Sylvaticus_21_run$species) # split into small dataframes for every species
+# problem with this it still contains multiple lines for every species. 
+# need to make it so that there is one species per Loci
+
+
+```
+
+
+
+# one line/hit for every species per Loci
+
+```{r}
+# split the dataframe to subdataframes for each consensus_id
+unique_consensus_ID <- split(Sylvaticus_21_run,f=Sylvaticus_21_run$Query_seq_id)
+```
+
+```{r}
+# do this for all the dataframes
+unique_consensus_ID <- lapply(unique_consensus_ID, function(x) {x %>% group_by(species) %>% arrange(desc(bitscore))})
+
+
+# check
+unique_consensus_ID[[1]]
+
+```
+
+```{r}
+# remove all duplicated species for 1 subdataframe
+unique_consensus_ID[[1]][!duplicated(unique_consensus_ID[[1]]$species),]
+
+# now do it across all dataframes
+unique_consensus_ID <- lapply(unique_consensus_ID, function(x) { x[!duplicated(x$species),]})  
+
+# check if worked, yes, contains only one species per locus
+unique_consensus_ID[[298]]
+
+# put back into big dataframe
+filtered_sylvaticus <- bind_rows(unique_consensus_ID) 
+
+filtered_sylvaticus %>% group_by(Query_seq_id) %>% count(species)
+```
+
+
+
+
+# Now have one line per species per Loci. 
+# Now need to split these Loci into unqiue species and obtain a fasta file for each for the MSA. 
+# The loci sites need to be in the exact same order.
+
+
+# PREPARING THE DATAFRAMES
+```{r}
+# already grouped by species
+species_results <- split(filtered_sylvaticus,f=filtered_sylvaticus$species)
+
+species_results <- lapply(species_results, function(x) {x %>% arrange(Query_seq_id)}) # just to really make sure all the consensus ID are in the exact same order
+
+
+species_results <- lapply(species_results, function(x) {x %>% select(species, subject_sequence) %>% summarise(subject_sequence = paste(subject_sequence, collapse = ""))})
+
+
+```
+
+# SAVING EACH SPECIES SEQUENCES INTO ONE LONG FASTA FILE
+
+```{r}
+# need to have one fasta file per dataframe in species_results
+a <- 1:21
+for (i in 1:21) {
+  a[i] <- dataframe2fas(species_results_maybe[i], file = NULL)
+  a[i] <- gsub(" ", "_", a[i])
+  a[i] <- gsub(">", "", a[i])
+  dataframe2fas(species_results_maybe[i], file = paste0(a[i],"_loci.fa"))
+}
+
+# This saves one fasta file per species for all the Loci sites in the correct order
+
+
+```
+
+# I concatenated each of these 21 fasta files into one long one for MSA 
+
+command line commands:
+ls *_loci.fa | wc -l
+# shows all the 21 sequences
+
+now want to concatenate them all into one long sequence
+cat *_loci.fa > all_21_species.fa
+# now have one fasta file for all 21 species with the loci
+
+
+
+
+
+
+MULTIPLE SEQUENCE ALIGMENT STEP
+
+
+
+# install and load the package MSA
+```{r}
+# R package installation for MSA
+ if (!requireNamespace("BiocManager", quietly=TRUE))
+    install.packages("BiocManager")
+BiocManager::install("msa")
+
+
+library("msa")
+
+?msa
+```
+
+# Loading the sequence from the fasta file
+
+```{r}
+mySeqs <- readDNAStringSet(filepath = "all_21_species.fa")
+```
+
+# Doing the alignment 
+
+```{r}
+Rodent_species_alignment <- msa(mySeqs)
+Rodent_species_alignment
+```
+
+
+
+# trying to save the alignment
+```{r}
+print(Rodent_species_alignment, show="complete") # shows full alignemnt
+
+# this saves it but it has missing sequences
+sink("Rodent_species_alignment.txt")
+print(Rodent_species_alignment, show="complete")
+sink()
+```
+
+
+
+
+# this method is shown in the docummentation but for some reason it doesnt work for me
+```{r}
+ msaPrettyPrint(Rodent_species_alignment, output="pdf", showNames="none",
+               showLogo="none", askForOverwrite=FALSE, verbose=FALSE)
+# need to install package tinytex::install_tinytex()
+
+tinytex::install_tinytex()
+library(tinytex)
+
+# Still doesnt work
+msaPrettyPrint(Rodent_species_alignment, output="pdf", showNames="none",
+               showLogo="none", askForOverwrite=FALSE, verbose=FALSE)
+
+msaPrettyPrint(Rodent_species_alignment, file = NULL)
+
+
+
+texi2dvi('Rodent_species_alignment.tx',clean=TRUE)
+```
+
+
+
+# this saves the alignment in an aln format
+```{r}
+install.packages("bios2mds")
+library("bios2mds")
+msa_rodent_align <- msa::msaConvert(Rodent_species_alignment, "bios2mds::align")
+
+export.fasta(msa_rodent_align, outfile = "msa_rodents.aln")
+
+# which using aliview i can then save as a fasta format which is compatible with IQ tree
+```
+
+
+
