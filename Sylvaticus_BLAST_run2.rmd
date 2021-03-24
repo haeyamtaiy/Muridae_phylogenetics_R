@@ -1,10 +1,5 @@
 ---
-title: "R Notebook"
-output: html_notebook
----
-
----
-title: "R Notebook"
+title: "Muridae phylogenetics analysis"
 output: html_notebook
 ---
 
@@ -12,6 +7,12 @@ output: html_notebook
 library(here)
 library(tidyverse)
 library("seqRFLP")
+library("Biostrings")
+install.packages("seqRFLP")
+library("seqRFLP")
+library("msa")
+install.packages("bios2mds")
+library("bios2mds")
 ```
 
 
@@ -66,6 +67,8 @@ Sylvaticus_new %>% select(species) %>% unique() %>% nrow()
 ```{r}
 # split the dataframe to subdataframes for each consensus_id
 unique_consensus_ID <- split(Sylvaticus_new,f=Sylvaticus_new$Query_seq_id)
+
+unique_consensus_ID[1]
 ```
 
 ```{r}
@@ -74,13 +77,13 @@ unique_consensus_ID[[1]]
 # goes from highest to lowest for each species
 
 # want to make sure when removing duplicated rows of species that you are actually keeping the highest bitscore
-unique_consensus_ID[[1]] %>% group_by(species) %>% arrange(desc(bitscore)) %>% filter(species = "Rattus")
+unique_consensus_ID[[1]] %>% group_by(species) %>% arrange(desc(bitscore))
 
 # do this for all the dataframes
 unique_consensus_ID <- lapply(unique_consensus_ID, function(x) {x %>% group_by(species) %>% arrange(desc(bitscore))})
 
 
-# check
+# check if its filtered from highest to lowest
 unique_consensus_ID[[1]] %>% filter(species == "Onychomys torridus")
 ```
 
@@ -92,7 +95,9 @@ unique_consensus_ID[[1]][!duplicated(unique_consensus_ID[[1]]$species),] %>% fil
 unique_consensus_ID <- lapply(unique_consensus_ID, function(x) { x[!duplicated(x$species),]})  
 
 # check if worked, yes, contains only one species per locus
-unique_consensus_ID[[2]]
+unique_consensus_ID[[5]]
+
+unique_consensus_ID[[23]] %>% select(-Evalue, -Identical_matches_perc, -subject_title)
 ```
 
 
@@ -144,6 +149,10 @@ loci_sites <- loci_sites %>% rename("number_of_species" = n)
 loci_sites
 ```
 
+
+
+# Extracting only the Loci sites that matched to all 21 species
+
 ```{r}
 R21 <- filtered_sylvaticus %>% count(Query_seq_id) %>% arrange(desc(n)) %>% filter(n == 21) %>% select(Query_seq_id)
 R21
@@ -171,11 +180,11 @@ filter(Sylvaticus_new, Query_seq_id %in% test_21$Query_seq_id) %>% arrange(Ident
 # NEED TO EXTRACT ALL THE 298 LOCI SITES FROM THE ORIGINAL INPUT SO CAN PUT THIS INTO BLAST
 
 ```{r}
-read_tsv(here::here("", "../consensus_sylvaticus_all.fa"), col_names=F)
+read_tsv(here::here("", "consensus_sylvaticus_all.fa"), col_names=F)
 # 85,508 / 4 = 21,377 Loci sites
 
 # make this into a dataframe
-library("Biostrings")
+
 
 input <- readDNAStringSet("consensus_sylvaticus_all.fa")
 Var1 <- names(input)
@@ -193,8 +202,7 @@ input_21 <- filter(input_df, Var1 %in% test_21$Query_seq_id) # yaaayyy 298!!
 
 ```{r}
 # need package seqRFLP
-install.packages("seqRFLP")
-library("seqRFLP")
+
 
 298*2
 
@@ -222,7 +230,7 @@ ANALYSIS OF OUTPUT
 
 
 ```{r}
-Sylvaticus_21_run <- read_tsv(here::here("", "../sylvaticus_21species_output.txt"), col_names=F) %>% 
+Sylvaticus_21_run <- read_tsv(here::here("", "sylvaticus_21species_output.txt"), col_names=F) %>% 
   rename("Query_seq_id" = X1,
          "Subject_seq_id" = X2,
          "Evalue" = X3,
@@ -232,6 +240,7 @@ Sylvaticus_21_run <- read_tsv(here::here("", "../sylvaticus_21species_output.txt
          "subject_sequence" = X7)
 
 
+here::here()
 
 ```
 
@@ -387,7 +396,7 @@ MULTIPLE SEQUENCE ALIGMENT STEP
 BiocManager::install("msa")
 
 
-library("msa")
+
 
 ?msa
 ```
@@ -407,45 +416,11 @@ Rodent_species_alignment
 
 
 
-# trying to save the alignment
-```{r}
-print(Rodent_species_alignment, show="complete") # shows full alignemnt
-
-# this saves it but it has missing sequences
-sink("Rodent_species_alignment.txt")
-print(Rodent_species_alignment, show="complete")
-sink()
-```
-
-
-
-
-# this method is shown in the docummentation but for some reason it doesnt work for me
-```{r}
- msaPrettyPrint(Rodent_species_alignment, output="pdf", showNames="none",
-               showLogo="none", askForOverwrite=FALSE, verbose=FALSE)
-# need to install package tinytex::install_tinytex()
-
-tinytex::install_tinytex()
-library(tinytex)
-
-# Still doesnt work
-msaPrettyPrint(Rodent_species_alignment, output="pdf", showNames="none",
-               showLogo="none", askForOverwrite=FALSE, verbose=FALSE)
-
-msaPrettyPrint(Rodent_species_alignment, file = NULL)
-
-
-
-texi2dvi('Rodent_species_alignment.tx',clean=TRUE)
-```
-
 
 
 # this saves the alignment in an aln format
 ```{r}
-install.packages("bios2mds")
-library("bios2mds")
+
 msa_rodent_align <- msa::msaConvert(Rodent_species_alignment, "bios2mds::align")
 
 export.fasta(msa_rodent_align, outfile = "msa_rodents.aln")
